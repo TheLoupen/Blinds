@@ -1,0 +1,141 @@
+#include <Stepper.h>
+#include <Wire.h>
+#include <ds3231.h>
+#include "DHT.h"
+#include <EEPROM.h>
+
+#define A 2
+#define B 3
+#define C 4
+#define D 5
+
+#define DHTPIN 6
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+struct ts t; 
+
+const int stepsPerRevolution = 200;
+
+int BlindsOpen = 0;
+int OpenHour = 9;
+int CloseHour = 21;
+
+int MaxTemp = 76;
+
+Stepper myStepper(stepsPerRevolution, A, B, C, D);
+
+void setup(){
+  //EEPROM.write(0, 1);   //Comment out after first sending
+  
+  //Get blinds status
+  BlindsOpen = EEPROM.read(0);
+  
+  //Motor
+  myStepper.setSpeed(45);
+  pinMode(A,OUTPUT);
+  pinMode(B,OUTPUT);
+  pinMode(C,OUTPUT);
+  pinMode(D,OUTPUT);
+
+  //Temp
+  dht.begin();
+
+  //Clock
+  Serial.begin(9600);
+  Wire.begin();
+  DS3231_init(DS3231_INTCN);
+  
+  //set clock values
+  t.hour=14; 
+  t.min=13;
+  t.sec=00;
+  t.mday=28;
+  t.mon=01;
+  t.year=2021;
+  //DS3231_set(t); //uncomment to set clock
+}
+
+void write(int a,int b,int c,int d){
+  digitalWrite(A,a);
+  digitalWrite(B,b);
+  digitalWrite(C,c);
+  digitalWrite(D,d);
+}
+
+void spins(int times) {
+  myStepper.step(times);
+  write(0,0,0,0);
+}
+
+void loop()
+{
+  //Get time
+  DS3231_get(&t);
+
+  //Display Time
+  DS3231_get(&t);
+  Serial.print("Date : ");
+  Serial.print(t.mday);
+  Serial.print("/");
+  Serial.print(t.mon);
+  Serial.print("/");
+  Serial.print(t.year);
+  Serial.print("\t Hour : ");
+  Serial.print(t.hour);
+  Serial.print(":");
+  Serial.print(t.min);
+  Serial.print(".");
+  Serial.print(t.sec);
+
+  //Get Temp
+  float f = dht.readTemperature(true);
+  Serial.print("   Temperature: ");
+  Serial.print(f);
+  Serial.print("°F");
+  
+  //Day
+  if (t.hour > OpenHour && t.hour < CloseHour) {
+    Serial.println("   It's daytime");
+
+    //print blinds status
+    Serial.print("BlindsOpen: ");
+    Serial.print(BlindsOpen);
+    Serial.print("   ");
+
+    //Too hot?
+    if (f > MaxTemp) {
+            
+      //Close Blinds
+      if (BlindsOpen == 1) {
+        Serial.println("Closing Blinds");
+        spins(-7000);
+        BlindsOpen=0;
+        EEPROM.update(0, 0);
+      }
+    } else {
+    
+      //Open Blinds
+      if (BlindsOpen == 0) {
+        Serial.println("Opening Blinds");
+        spins(9000);
+        BlindsOpen=1;
+        EEPROM.update(0, 1);
+      }
+    }
+
+  //Night
+  } else {
+      Serial.println("It's Nighttime");
+      
+    //Close Blinds
+      if (BlindsOpen == 1) {
+        Serial.println("Closing Blinds");
+        spins(-9000);
+        BlindsOpen=0;
+      }
+    }
+
+  
+  delay(1000);
+}
